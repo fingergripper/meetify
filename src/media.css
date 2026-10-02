@@ -1,0 +1,30 @@
+.tile .peer-volume {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: #101214cc;
+  color: #d8dde1;
+  font-size: 10px;
+}
+
+.peer-volume input {
+  width: 76px;
+  height: 14px;
+  accent-color: #aab8c5;
+}
+
+.tile .audio-activate {
+  top: 8px;
+  bottom: auto;
+}
+
+@media (max-width: 600px) {
+  .peer-volume input {
+    width: 54px;
+  }
+}

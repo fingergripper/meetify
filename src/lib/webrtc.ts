@@ -6,15 +6,17 @@ const rtcConfig: RTCConfiguration = { iceServers: [{ urls: 'stun:stun.l.google.c
 export class Mesh {
   private peers = new Map<string, RTCPeerConnection>()
   private pendingIce = new Map<string, RTCIceCandidateInit[]>()
+  private iceRestarts = new Map<string, number>()
   private events: PeerEvents
   constructor(private id: string, events: PeerEvents) { this.events = events }
   add(id: string, stream: MediaStream, initiator: boolean) {
     if (id === this.id || this.peers.has(id)) return
     const pc = new RTCPeerConnection(rtcConfig)
     this.peers.set(id, pc)
+    this.refreshVideoQuality()
     stream.getTracks().forEach(track => {
       const sender = pc.addTrack(track, stream)
-      if (track.kind === 'video') void this.setVideoQuality(sender)
+      if (track.kind === 'video') void this.setVideoQuality(sender, this.peers.size + 1)
     })
     pc.ontrack = event => {
       const source = event.streams[0] ?? new MediaStream([event.track])
@@ -35,7 +37,11 @@ export class Mesh {
     ;(pc as RTCPeerConnection & { meetifyNegotiation?: { polite: boolean; getMakingOffer: () => boolean; getIgnoreOffer: () => boolean; setIgnoreOffer: (value: boolean) => void } }).meetifyNegotiation = { polite, getMakingOffer: () => makingOffer, getIgnoreOffer: () => ignoreOffer, setIgnoreOffer: value => { ignoreOffer = value } }
     pc.onconnectionstatechange = () => {
       this.events.state(id, pc.connectionState)
-      if (['failed', 'closed'].includes(pc.connectionState)) this.remove(id)
+      if (pc.connectionState === 'connected') this.iceRestarts.delete(id)
+      else if (pc.connectionState === 'failed') {
+        const attempts = this.iceRestarts.get(id) ?? 0
+        if (attempts < 2) { this.iceRestarts.set(id, attempts + 1); pc.restartIce() }
+      } else if (pc.connectionState === 'closed') this.remove(id)
     }
     if (initiator && pc.signalingState === 'stable') void pc.onnegotiationneeded?.(new Event('negotiationneeded'))
   }
@@ -79,7 +85,7 @@ export class Mesh {
         if (sender) await sender.replaceTrack(track)
         else {
           const nextSender = pc.addTrack(track, stream)
-          if (track.kind === 'video') void this.setVideoQuality(nextSender)
+          if (track.kind === 'video') void this.setVideoQuality(nextSender, this.peers.size + 1)
         }
       }
     })
@@ -92,15 +98,25 @@ export class Mesh {
       catch (error) { console.warn('[webrtc] queued ICE candidate rejected', id, error) }
     }
   }
-  private async setVideoQuality(sender: RTCRtpSender) {
+  private async setVideoQuality(sender: RTCRtpSender, participants: number) {
     try {
       const parameters = sender.getParameters()
       if (!parameters.encodings?.length) parameters.encodings = [{}]
-      parameters.encodings[0].maxBitrate = 1_800_000
-      parameters.encodings[0].maxFramerate = 30
+      const policy = participants <= 2
+        ? { bitrate: 1_800_000, fps: 30, scale: 1 }
+        : participants <= 4
+          ? { bitrate: 1_100_000, fps: 24, scale: 1.25 }
+          : { bitrate: 650_000, fps: 20, scale: 1.7 }
+      parameters.encodings[0].maxBitrate = policy.bitrate
+      parameters.encodings[0].maxFramerate = policy.fps
+      parameters.encodings[0].scaleResolutionDownBy = policy.scale
       await sender.setParameters(parameters)
     } catch (error) { console.warn('[webrtc] video quality settings unavailable', error) }
   }
-  remove(id: string) { this.peers.get(id)?.close(); this.peers.delete(id); this.pendingIce.delete(id) }
-  close() { this.peers.forEach(pc => pc.close()); this.peers.clear(); this.pendingIce.clear() }
+  private refreshVideoQuality() {
+    const participants = this.peers.size + 1
+    this.peers.forEach(pc => pc.getSenders().filter(sender => sender.track?.kind === 'video').forEach(sender => void this.setVideoQuality(sender, participants)))
+  }
+  remove(id: string) { this.peers.get(id)?.close(); this.peers.delete(id); this.pendingIce.delete(id); this.iceRestarts.delete(id); this.refreshVideoQuality() }
+  close() { this.peers.forEach(pc => pc.close()); this.peers.clear(); this.pendingIce.clear(); this.iceRestarts.clear() }
 }

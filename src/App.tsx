@@ -7,7 +7,7 @@ const ROOM = 'main'
 const MAX = 10
 const meId = (() => { const key = 'meetify-id'; const old = sessionStorage.getItem(key); if (old) return old; const id = crypto.randomUUID(); sessionStorage.setItem(key, id); return id })()
 
-function VideoTile({ participant }: { participant: Participant }) {
+function VideoTile({ participant, volume, onVolumeChange }: { participant: Participant; volume: number; onVolumeChange: (volume: number) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const [audioBlocked, setAudioBlocked] = useState(false)
@@ -17,14 +17,16 @@ function VideoTile({ participant }: { participant: Participant }) {
     const audio = audioRef.current
     if (!audio || participant.local || !participant.stream?.getAudioTracks().length) return
     audio.srcObject = participant.stream
+    audio.volume = volume
     void audio.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true))
-  }, [participant.local, participant.stream, streamKey])
+  }, [participant.local, participant.stream, streamKey, volume])
   const hasVideo = participant.camera && Boolean(participant.stream?.getVideoTracks().length)
   return <div className={'tile' + (participant.sharing ? ' shared' : '')}>
     {!participant.local && <audio ref={audioRef} autoPlay playsInline />}
     {hasVideo ? <video ref={videoRef} autoPlay playsInline muted /> : <div className="avatar">{participant.name.slice(0, 2).toUpperCase()}</div>}
     <div className="name">{participant.name}{participant.local ? ' (you)' : ''}{participant.muted ? ' · muted' : ''}{participant.sharing ? ' · sharing' : ''}</div>
     {audioBlocked && <button className="audio-activate" onClick={() => { const audio = audioRef.current; if (audio) void audio.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true)) }}>Click to hear</button>}
+    {!participant.local && <label className="peer-volume" title={'Volume for ' + participant.name}><span>Vol</span><input aria-label={'Volume for ' + participant.name} type="range" min="0" max="1" step="0.05" value={volume} onChange={event => onVolumeChange(Number(event.target.value))} /></label>}
   </div>
 }
 
@@ -61,8 +63,14 @@ export function App() {
   const [name, setName] = useState(localStorage.getItem('meetify-name') ?? '')
   const [joined, setJoined] = useState(false); const [participants, setParticipants] = useState<Participant[]>([])
   const [muted, setMuted] = useState(false); const [camera, setCamera] = useState(false); const [sharing, setSharing] = useState(false); const [status, setStatus] = useState('Ready')
+  const [volumes, setVolumes] = useState<Record<string, number>>(() => { try { return JSON.parse(localStorage.getItem('meetify-volumes') ?? '{}') as Record<string, number> } catch { return {} } })
   const [error, setError] = useState(''); const streamRef = useRef(new MediaStream()); const screenRef = useRef<MediaStreamTrack | null>(null); const meshRef = useRef<Mesh | null>(null); const channelRef = useRef<ReturnType<NonNullable<typeof supabase>['channel']> | null>(null)
   const send = useCallback((message: Signal) => { channelRef.current?.send({ type: 'broadcast', event: 'signal', payload: message }) }, [])
+  const setPeerVolume = (id: string, volume: number) => setVolumes(previous => {
+    const next = { ...previous, [id]: volume }
+    localStorage.setItem('meetify-volumes', JSON.stringify(next))
+    return next
+  })
 
   const join = async () => {
     if (!supabase) { setError(supabaseConfigError ?? 'Supabase is not configured.'); return }
@@ -124,5 +132,5 @@ export function App() {
   const leave = () => { send({ type: 'leave', from: meId }); meshRef.current?.close(); streamRef.current.getTracks().forEach(t => t.stop()); void channelRef.current?.unsubscribe(); channelRef.current = null; setJoined(false); setParticipants([]); setStatus('Ready'); setCamera(false); setSharing(false); streamRef.current = new MediaStream() }
   useEffect(() => () => { meshRef.current?.close(); streamRef.current.getTracks().forEach(t => t.stop()) }, [])
   if (!joined) return <main className="welcome"><div className="brand">MEETIFY</div><h1>One room. Always open.</h1><p className="sub">A simple, private video room for your friends.</p><label>Nickname<input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && void join()} maxLength={24} placeholder="Your name" /></label><div className="join-row"><button className="primary" onClick={() => void join()}>Join room</button><button onClick={() => void startMedia(true, true)}>Enable camera & mic</button></div>{error && <p className="error">{error}</p>}<p className="hint">Room: /{ROOM} · maximum {MAX} people</p></main>
-  return <main className="room"><header><div><span className="brand">MEETIFY</span><span className="room-label"> / {ROOM}</span></div><span className="status"><i />{status}</span></header><section className={'grid ' + (participants.length > 5 ? 'count-many' : 'count-' + participants.length)}>{participants.map(p => <VideoTile key={p.id} participant={p} />)}</section>{error && <div className="toast">{error}<button onClick={() => setError('')}>×</button></div>}<footer><button aria-label="Mute microphone" className={muted ? 'active' : ''} onClick={toggleMute}>🎤 <span>{muted ? 'Unmute' : 'Mute'}</span></button><MicrophoneMeter stream={streamRef.current} enabled={!muted && streamRef.current.getAudioTracks().some(track => track.enabled)} /><button aria-label="Toggle camera" className={!camera ? 'active' : ''} onClick={toggleCamera}>📷 <span>{camera ? 'Camera off' : 'Camera on'}</span></button><button aria-label="Share screen" className={sharing ? 'active' : ''} onClick={() => void share()}>▣ <span>{sharing ? 'Stop sharing' : 'Share screen'}</span></button><button aria-label="Leave room" className="leave" onClick={leave}>↪ <span>Leave</span></button></footer></main>
+  return <main className="room"><header><div><span className="brand">MEETIFY</span><span className="room-label"> / {ROOM}</span></div><span className="status"><i />{status}</span></header><section className={'grid ' + (participants.length > 5 ? 'count-many' : 'count-' + participants.length)}>{participants.map(p => <VideoTile key={p.id} participant={p} volume={volumes[p.id] ?? 1} onVolumeChange={volume => setPeerVolume(p.id, volume)} />)}</section>{error && <div className="toast">{error}<button onClick={() => setError('')}>×</button></div>}<footer><button aria-label="Mute microphone" className={muted ? 'active' : ''} onClick={toggleMute}>🎤 <span>{muted ? 'Unmute' : 'Mute'}</span></button><MicrophoneMeter stream={streamRef.current} enabled={!muted && streamRef.current.getAudioTracks().some(track => track.enabled)} /><button aria-label="Toggle camera" className={!camera ? 'active' : ''} onClick={toggleCamera}>📷 <span>{camera ? 'Camera off' : 'Camera on'}</span></button><button aria-label="Share screen" className={sharing ? 'active' : ''} onClick={() => void share()}>▣ <span>{sharing ? 'Stop sharing' : 'Share screen'}</span></button><button aria-label="Leave room" className="leave" onClick={leave}>↪ <span>Leave</span></button></footer></main>
 }
