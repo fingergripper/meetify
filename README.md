@@ -23,6 +23,8 @@ copy .env.example .env.local # PowerShell; use cp on macOS/Linux
 npm run dev
 ```
 
+Open the local HTTP address printed by Vite (usually `http://localhost:5173/`). Do not open `index.html` directly from File Explorer; the source uses TypeScript modules that Vite must compile and serve.
+
 Open the local HTTPS-capable development URL (camera permissions require a secure context; `localhost` is allowed by browsers). The first person can join without enabling devices; use “Enable camera & mic” before or after joining as needed.
 
 ## Netlify deployment
