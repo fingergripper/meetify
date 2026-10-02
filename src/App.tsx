@@ -4,7 +4,7 @@ import { Mesh } from './lib/webrtc'
 import type { Participant, Signal } from './types'
 
 const ROOM = 'main'
-const MAX = 5
+const MAX = 10
 const meId = (() => { const key = 'meetify-id'; const old = sessionStorage.getItem(key); if (old) return old; const id = crypto.randomUUID(); sessionStorage.setItem(key, id); return id })()
 
 function VideoTile({ participant }: { participant: Participant }) {

@@ -1,6 +1,6 @@
 # Meetify
 
-Meetify is a single permanent, five-person room. Supabase Realtime handles presence and signaling; WebRTC carries audio, video, and screen-share media directly between browsers. There is no meeting creation flow, database, login, media server, or host.
+Meetify is a single permanent, ten-person room. Supabase Realtime handles presence and signaling; WebRTC carries audio, video, and screen-share media directly between browsers. There is no meeting creation flow, database, login, media server, or host.
 
 ```text
 Browser A ── WebRTC media ── Browser B/C/D/E
@@ -33,7 +33,7 @@ Import this repository into Netlify. Build command: `npm run build`. Publish dir
 
 ## Notes and troubleshooting
 
-- A five-person mesh is intentionally used because it keeps infrastructure tiny, but each participant sends media to the other four.
+- A ten-person mesh keeps infrastructure tiny, but each participant sends media to the other participants, so bandwidth rises as the room fills.
 - The initial STUN server is `stun:stun.l.google.com:19302`. Some restrictive networks need a TURN service; add its credentials in `src/lib/webrtc.ts` under `iceServers`.
 - If a device is unavailable, the room still works as audio-only or receive-only.
 - Keep the browser console open for WebRTC diagnostics. “Could not connect” usually means the Supabase URL/key is wrong or Realtime is blocked; media failures often need TURN.
