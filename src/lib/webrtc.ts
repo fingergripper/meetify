@@ -5,14 +5,21 @@ const rtcConfig: RTCConfiguration = { iceServers: [{ urls: 'stun:stun.l.google.c
 
 export class Mesh {
   private peers = new Map<string, RTCPeerConnection>()
+  private pendingIce = new Map<string, RTCIceCandidateInit[]>()
   private events: PeerEvents
   constructor(private id: string, events: PeerEvents) { this.events = events }
   add(id: string, stream: MediaStream, initiator: boolean) {
     if (id === this.id || this.peers.has(id)) return
     const pc = new RTCPeerConnection(rtcConfig)
     this.peers.set(id, pc)
-    stream.getTracks().forEach(track => pc.addTrack(track, stream))
-    pc.ontrack = event => { const s = event.streams[0]; if (s) this.events.stream(id, s) }
+    stream.getTracks().forEach(track => {
+      const sender = pc.addTrack(track, stream)
+      if (track.kind === 'video') void this.setVideoQuality(sender)
+    })
+    pc.ontrack = event => {
+      const source = event.streams[0] ?? new MediaStream([event.track])
+      this.events.stream(id, new MediaStream(source.getTracks()))
+    }
     pc.onicecandidate = event => { if (event.candidate) this.events.signal({ type: 'ice', from: this.id, to: id, payload: event.candidate.toJSON() }) }
     let makingOffer = false
     let ignoreOffer = false
@@ -45,10 +52,18 @@ export class Mesh {
       if (ignore) return
       if (collision) await pc.setLocalDescription({ type: 'rollback' })
       await pc.setRemoteDescription(message.payload as RTCSessionDescriptionInit)
+      await this.flushIce(message.from, pc)
       await pc.setLocalDescription()
       if (pc.localDescription) this.events.signal({ type: 'answer', from: this.id, to: message.from, payload: pc.localDescription })
-    } else if (message.type === 'answer') await pc.setRemoteDescription(message.payload as RTCSessionDescriptionInit)
-    else if (message.type === 'ice') { try { if (!negotiation?.getIgnoreOffer()) await pc.addIceCandidate(message.payload as RTCIceCandidateInit) } catch { /* stale candidate */ } }
+    } else if (message.type === 'answer') {
+      await pc.setRemoteDescription(message.payload as RTCSessionDescriptionInit)
+      await this.flushIce(message.from, pc)
+    } else if (message.type === 'ice') {
+      const candidate = message.payload as RTCIceCandidateInit
+      if (negotiation?.getIgnoreOffer()) return
+      if (!pc.remoteDescription) this.pendingIce.set(message.from, [...(this.pendingIce.get(message.from) ?? []), candidate])
+      else { try { await pc.addIceCandidate(candidate) } catch (error) { console.warn('[webrtc] ICE candidate rejected', message.from, error) } }
+    }
   }
   replaceVideo(track: MediaStreamTrack | null, stream?: MediaStream) {
     this.peers.forEach(pc => {
@@ -62,10 +77,30 @@ export class Mesh {
       for (const track of stream.getTracks()) {
         const sender = pc.getSenders().find(s => s.track?.kind === track.kind)
         if (sender) await sender.replaceTrack(track)
-        else pc.addTrack(track, stream)
+        else {
+          const nextSender = pc.addTrack(track, stream)
+          if (track.kind === 'video') void this.setVideoQuality(nextSender)
+        }
       }
     })
   }
-  remove(id: string) { this.peers.get(id)?.close(); this.peers.delete(id) }
-  close() { this.peers.forEach(pc => pc.close()); this.peers.clear() }
+  private async flushIce(id: string, pc: RTCPeerConnection) {
+    const candidates = this.pendingIce.get(id) ?? []
+    this.pendingIce.delete(id)
+    for (const candidate of candidates) {
+      try { await pc.addIceCandidate(candidate) }
+      catch (error) { console.warn('[webrtc] queued ICE candidate rejected', id, error) }
+    }
+  }
+  private async setVideoQuality(sender: RTCRtpSender) {
+    try {
+      const parameters = sender.getParameters()
+      if (!parameters.encodings?.length) parameters.encodings = [{}]
+      parameters.encodings[0].maxBitrate = 1_800_000
+      parameters.encodings[0].maxFramerate = 30
+      await sender.setParameters(parameters)
+    } catch (error) { console.warn('[webrtc] video quality settings unavailable', error) }
+  }
+  remove(id: string) { this.peers.get(id)?.close(); this.peers.delete(id); this.pendingIce.delete(id) }
+  close() { this.peers.forEach(pc => pc.close()); this.peers.clear(); this.pendingIce.clear() }
 }

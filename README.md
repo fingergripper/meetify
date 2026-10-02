@@ -35,6 +35,8 @@ Import this repository into Netlify. Build command: `npm run build`. Publish dir
 
 - A ten-person mesh keeps infrastructure tiny, but each participant sends media to the other participants, so bandwidth rises as the room fills.
 - The initial STUN server is `stun:stun.l.google.com:19302`. Some restrictive networks need a TURN service; add its credentials in `src/lib/webrtc.ts` under `iceServers`.
+- Camera capture requests 720p at up to 30 transmitted frames per second and caps each peer video stream near 1.8 Mbps. A 60 FPS camera can still capture clean video, while the mesh keeps upload and CPU use manageable as more friends join.
+- Remote microphone audio plays in a separate audio element. If browser autoplay blocks it, use the “Click to hear” button on that participant’s tile.
 - If a device is unavailable, the room still works as audio-only or receive-only.
 - Keep the browser console open for WebRTC diagnostics. “Could not connect” usually means the Supabase URL/key is wrong or Realtime is blocked; media failures often need TURN.
 - The room persists because it is a fixed channel name, not a stored meeting record. Presence disappears when users leave, while the channel remains available for the next visitor.
