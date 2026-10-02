@@ -10,7 +10,7 @@ Browser A ── WebRTC media ── Browser B/C/D/E
 ## Supabase setup
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. In Project Settings → API, copy the **Project URL** and the browser-safe **Publishable key** (or legacy `anon` key). Never use the service-role key.
+2. In Project Settings → API, copy the **Project URL** and the browser-safe **Publishable key** beginning with `sb_publishable_` (or the legacy `anon` key). Never put an `sb_secret_` or service-role key in a Vite environment variable: browser code exposes `VITE_` values publicly, and secret keys are rejected by Realtime.
 3. Realtime is enabled by default on new projects. No tables, migrations, storage buckets, or authentication configuration are needed: this app uses an ephemeral Realtime channel and presence.
 4. In the Realtime settings, leave anonymous broadcast/presence available for the project. For a private friend room, the unguessable URL is the access mechanism. You can add authentication/RLS later if needed.
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { supabase } from './lib/supabase'
+import { supabase, supabaseConfigError } from './lib/supabase'
 import { Mesh } from './lib/webrtc'
 import type { Participant, Signal } from './types'
 
@@ -24,7 +24,7 @@ export function App() {
   const send = useCallback((message: Signal) => { channelRef.current?.send({ type: 'broadcast', event: 'signal', payload: message }) }, [])
 
   const join = async () => {
-    if (!supabase) { setError('Add your Supabase settings to .env.local first.'); return }
+    if (!supabase) { setError(supabaseConfigError ?? 'Supabase is not configured.'); return }
     const cleanName = name.trim().slice(0, 24); if (!cleanName) { setError('Enter a nickname to join.'); return }
     setError(''); localStorage.setItem('meetify-name', cleanName)
     const channel = supabase.channel(`room:${ROOM}`, { config: { presence: { key: meId } } }); channelRef.current = channel
